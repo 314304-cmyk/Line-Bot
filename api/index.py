@@ -1,14 +1,21 @@
 from flask import Flask, request, abort
 import os
-from linebot import LineBotApi, WebhookHandler
-from linebot.exceptions import InvalidSignatureError
-from linebot.models import MessageEvent, TextMessage, TextSendMessage
+from linebot.v3 import WebhookHandler
+from linebot.v3.exceptions import InvalidSignatureError
+from linebot.v3.messaging import (
+    Configuration,
+    ApiClient,
+    MessagingApi,
+    ReplyMessageRequest,
+    TextMessage
+)
+from linebot.v3.webhooks import MessageEvent, TextMessageContent
 
 app = Flask(__name__)
 
 # LINE Bot credentials from environment variables
-line_bot_api = LineBotApi(os.environ.get('LINE_CHANNEL_ACCESS_TOKEN'))
-handler = WebhookHandler(os.environ.get('LINE_CHANNEL_SECRET'))
+configuration = Configuration(access_token=os.environ.get('LINE_CHANNEL_ACCESS_TOKEN', ''))
+handler = WebhookHandler(os.environ.get('LINE_CHANNEL_SECRET', ''))
 
 # Customer service keyword responses
 CUSTOMER_SERVICE_RESPONSES = {
@@ -53,16 +60,20 @@ def webhook():
     return 'OK'
 
 
-@handler.add(MessageEvent, message=TextMessage)
+@handler.add(MessageEvent, message=TextMessageContent)
 def handle_text_message(event):
     """Handle incoming text messages."""
     user_message = event.message.text
     response = get_response(user_message)
     
-    line_bot_api.reply_message(
-        event.reply_token,
-        TextSendMessage(text=response)
-    )
+    with ApiClient(configuration) as api_client:
+        line_bot_api = MessagingApi(api_client)
+        line_bot_api.reply_message_with_http_info(
+            ReplyMessageRequest(
+                reply_token=event.reply_token,
+                messages=[TextMessage(text=response)]
+            )
+        )
 
 
 # For local development
