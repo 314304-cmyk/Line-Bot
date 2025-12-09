@@ -4,37 +4,57 @@ import traceback
 
 app = Flask(__name__)
 
-# LINE Bot credentials from environment variables
+# LINE Bot credentials
 LINE_CHANNEL_SECRET = os.environ.get('LINE_CHANNEL_SECRET', '')
 LINE_CHANNEL_ACCESS_TOKEN = os.environ.get('LINE_CHANNEL_ACCESS_TOKEN', '')
 
-# Customer service keyword responses
+# Pinecone credentials
+PINECONE_API_KEY = os.environ.get('PINECONE_API_KEY', '')
+
+# Customer service keyword responses (保留基本關鍵字)
 CUSTOMER_SERVICE_RESPONSES = {
     '服務時間': '🕐 我們的服務時間：\n週一至週五：09:00 - 18:00\n週六：10:00 - 16:00\n週日及國定假日休息',
     '營業時間': '🕐 我們的服務時間：\n週一至週五：09:00 - 18:00\n週六：10:00 - 16:00\n週日及國定假日休息',
     '聯絡方式': '📞 聯絡我們：\n電話：02-1234-5678\nEmail：service@example.com\n地址：台北市信義區xxx路xx號',
     '聯繫': '📞 聯絡我們：\n電話：02-1234-5678\nEmail：service@example.com\n地址：台北市信義區xxx路xx號',
-    '價格': '💰 價格資訊：\n請參考我們的官網價格頁面，或來電洽詢專人為您報價。\n官網：https://example.com/pricing',
-    '費用': '💰 價格資訊：\n請參考我們的官網價格頁面，或來電洽詢專人為您報價。\n官網：https://example.com/pricing',
-    '幫助': '📋 您好！我可以幫您處理以下問題：\n\n🔹 輸入「服務時間」查詢營業時間\n🔹 輸入「聯絡方式」取得聯絡資訊\n🔹 輸入「價格」了解價格資訊\n\n如需其他協助，請直接描述您的問題！',
-    'help': '📋 您好！我可以幫您處理以下問題：\n\n🔹 輸入「服務時間」查詢營業時間\n🔹 輸入「聯絡方式」取得聯絡資訊\n🔹 輸入「價格」了解價格資訊\n\n如需其他協助，請直接描述您的問題！',
+    '幫助': '📋 您好！我可以幫您處理以下問題：\n\n🔹 輸入「服務時間」查詢營業時間\n🔹 輸入「聯絡方式」取得聯絡資訊\n🔹 或直接輸入問題，我會用 AI 為您解答！',
+    'help': '📋 您好！我可以幫您處理以下問題：\n\n🔹 輸入「服務時間」查詢營業時間\n🔹 輸入「聯絡方式」取得聯絡資訊\n🔹 或直接輸入問題，我會用 AI 為您解答！',
 }
 
-DEFAULT_RESPONSE = '感謝您的訊息！\n\n如需快速查詢，您可以輸入以下關鍵字：\n🔹 服務時間\n🔹 聯絡方式\n🔹 價格\n🔹 幫助\n\n或稍候將有專人為您服務。'
+
+def ask_pinecone_rag(question: str) -> str:
+    """Query Pinecone RAG assistant for answers."""
+    try:
+        from pinecone import Pinecone
+        from pinecone_plugins.assistant.models.chat import Message
+        
+        pc = Pinecone(api_key=PINECONE_API_KEY)
+        assistant = pc.assistant.Assistant(assistant_name="readpdf")
+        
+        msg = Message(content=question)
+        resp = assistant.chat(messages=[msg])
+        
+        return resp["message"]["content"]
+    except Exception as e:
+        print(f"Pinecone RAG Error: {str(e)}")
+        return f"抱歉，AI 回答時發生錯誤。請稍後再試。"
 
 
 def get_response(user_message: str) -> str:
     """Get appropriate response based on user message."""
+    # 先檢查關鍵字
     for keyword, response in CUSTOMER_SERVICE_RESPONSES.items():
         if keyword in user_message:
             return response
-    return DEFAULT_RESPONSE
+    
+    # 沒有符合關鍵字，使用 Pinecone RAG
+    return ask_pinecone_rag(user_message)
 
 
 # Health check endpoint
 @app.route('/', methods=['GET'])
 def index():
-    return 'LINE Bot is running!'
+    return 'LINE Bot with Pinecone RAG is running!'
 
 
 @app.route('/api/webhook', methods=['GET'])
@@ -55,21 +75,16 @@ def webhook():
             ReplyMessageRequest,
             TextMessage
         )
-        from linebot.v3.webhooks import MessageEvent, TextMessageContent
         import json
         
         signature = request.headers.get('X-Line-Signature', '')
         body = request.get_data(as_text=True)
-        
-        # Verify signature
-        handler = WebhookHandler(LINE_CHANNEL_SECRET)
         
         try:
             events = json.loads(body).get('events', [])
         except:
             return 'OK'
         
-        # Process events
         configuration = Configuration(access_token=LINE_CHANNEL_ACCESS_TOKEN)
         
         for event in events:
@@ -95,6 +110,5 @@ def webhook():
         return 'OK'
 
 
-# For local development
 if __name__ == '__main__':
     app.run(debug=True, port=5000)

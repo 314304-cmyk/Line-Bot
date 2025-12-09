@@ -1,2 +1,4 @@
 flask==3.0.0
 line-bot-sdk==3.5.1
+pinecone
+pinecone-plugin-assistant
